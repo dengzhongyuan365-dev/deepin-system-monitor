@@ -1,3 +1,9 @@
+deepin-system-monitor (6.5.38) unstable; urgency=medium
+
+  * fix: handle failure in resolving executable path for process ID
+
+ -- dengzhongyuan <dengzhongyuan@uniontech.com>  Thu, 05 Feb 2026 19:59:05 +0800
+
 deepin-system-monitor (6.5.37) unstable; urgency=medium
 
   * chore: Update compiler flags for security enhancements
