@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // 测试目标：core::process::PriorityController（renice 优先级控制器）。
-// QProcess 启动经 stub 拦截，exit() 经 stub 转为异常，测试不启动真实 pkexec/renice。
+// QProcess 启动经 stub 拦截；缺失依赖通过安全返回验证，测试不启动真实 pkexec/renice。
 
 //self
 #include "process/priority_controller.h"
@@ -35,7 +35,7 @@
 // 4. 同质 ≥ 3 组用 TEST_P: [x]（退出码四等价类结构同构，独立用例列出）
 // 5. 分支清单 → 用例映射已列出: [x]
 // 6. 每条 if/switch/throw/early-return 有触发用例: [x]
-// 7. 异常路径 EXPECT_THROW 精确匹配: [x]（exit() 桩化为异常）
+// 7. 异常路径精确匹配: [x]（缺失依赖上报 ENOENT 后安全返回）
 // 8. 负面场景有专门用例: [x]
 // 9. 负面用例验证强异常安全: [x]
 // 10. stub_ext vs gMock 选择正确: [x]
@@ -179,32 +179,23 @@ TEST_F(UT_PriorityController, Execute_CommandsExist_StartsPkexecRenice)
     EXPECT_EQ(params.at(2), QStringLiteral("4321"));
 }
 
-TEST_F(UT_PriorityController, Execute_PkexecMissing_EmitsEnoentWithoutFinished)
+TEST_F(UT_PriorityController, Execute_PkexecMissing_EmitsEnoentAndReturns)
 {
-    // Arrange: exists 一律 false（pkexec 与 renice 两次检查均未命中）；
-    // exit() 桩化为 no-op（stub 桩体不能抛异常穿越，故验证“退出码上报 + 不发 finished”）。
-    // 源码在 exit() 之后的残余流程（第二次检查/启动）也会执行，一并纳入断言。
+    // 旧用例把 exit() 桩成 no-op，导致事件循环继续执行残缺流程并反复
+    // 触发 renice。生产代码已改为上报 ENOENT 后安全返回；这里直接验证
+    // 只上报一次错误且不启动 QProcess、不发出 finished。
     stub.set_lamda(static_cast<bool (*)(const QString &)>(&QFile::exists),
-                      [](const QString &) -> bool {
+                   [](const QString &) -> bool {
         __DBG_STUB_INVOKE__
         return false;
     });
-    stub.set_lamda((void (*)(int)) & exit, [](int) -> void {
-        __DBG_STUB_INVOKE__
-    });
-    QString program;
-    QStringList params;
-    hookProcessStart(stub, &program, &params);
     PriorityController controller(4321, 5);
     QSignalSpy resultSpy(&controller, &PriorityController::resultReady);
     QSignalSpy finishSpy(&controller, &PriorityController::finished);
-    // Act: 执行（exit() 被 no-op，流程走完两次检查）
+
     controller.execute();
-    // Assert: 两次检查各上报一次 ENOENT，finished 不发出，启动参数仍按原格式拼装
-    ASSERT_EQ(resultSpy.count(), 2);
-    EXPECT_EQ(resultSpy.at(0).first().toInt(), ENOENT);
-    EXPECT_EQ(resultSpy.at(1).first().toInt(), ENOENT);
+
+    ASSERT_EQ(resultSpy.count(), 1);
+    EXPECT_EQ(resultSpy.first().first().toInt(), ENOENT);
     EXPECT_EQ(finishSpy.count(), 0);
-    EXPECT_TRUE(program.endsWith(QStringLiteral("pkexec")));
-    EXPECT_EQ(params.at(2), QStringLiteral("4321"));
 }

@@ -68,13 +68,13 @@ void PriorityController::execute()
     if (!QFile::exists({CMD_PKEXEC})) {
         qCDebug(app) << "pkexec not found";
         Q_EMIT resultReady(ENOENT);
-        exit(ENOENT);
+        return;
     }
     // check renice existance
     if (!QFile::exists({CMD_RENICE})) {
         qCDebug(app) << "renice not found";
         Q_EMIT resultReady(ENOENT);
-        exit(ENOENT);
+        return;
     }
 
     // format: renice {priority} {pid}
